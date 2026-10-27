@@ -2,8 +2,9 @@
 
 import { Address } from 'viem';
 import { writeFileSync, readFileSync } from 'node:fs';
-import { sonic } from 'viem/chains';
 import { ChainId, PERMIT2 } from '../src/utils/constants';
+import { balancerV2Contracts as existingV2Contracts } from '../src/utils/balancerV2Contracts';
+import { balancerV3Contracts as existingV3Contracts } from '../src/utils/balancerV3Contracts';
 import {
     ContractRegistry,
     SupportedNetwork,
@@ -55,37 +56,69 @@ const balancerV2Contracts: ContractRegistry = {};
 const balancerV3Contracts: ContractRegistry = {};
 const permit2Updates: Record<string, Address> = {};
 
-const branch = 'master'; // point this at any balancer-deployments branch
+const deploymentsOrg = 'frontier-fi';
+const deploymentsRepo = 'deployments';
+const branch = 'main'; // point this at any frontier-fi/deployments branch
+const deploymentsBase = `https://raw.githubusercontent.com/${deploymentsOrg}/${deploymentsRepo}/refs/heads/${branch}`;
 
 async function updateBalancerDeployments() {
+    seedFromExisting(
+        existingV2Contracts as unknown as Record<
+            string,
+            Record<number | string, string>
+        >,
+        balancerV2Contracts,
+    );
+    seedFromExisting(
+        existingV3Contracts as unknown as Record<
+            string,
+            Record<number | string, string>
+        >,
+        balancerV3Contracts,
+    );
     const supportedNetworks = await fetchSupportedNetworks();
     await processContractData(supportedNetworks);
     updateContractAddresses();
     exportAbis();
 }
 
+/**
+ * Seed registries from current SDK files so networks Frontier has not
+ * published yet are preserved when we rewrite the address files.
+ */
+function seedFromExisting(
+    existing: Record<string, Record<number | string, string>>,
+    target: ContractRegistry,
+) {
+    for (const [name, addresses] of Object.entries(existing)) {
+        target[name] = {};
+        for (const [chainId, address] of Object.entries(addresses)) {
+            const key = chainIdToHumanKey[Number(chainId)];
+            if (key && address) {
+                target[name][key] = address as Address;
+            }
+        }
+    }
+}
+
 async function fetchSupportedNetworks(): Promise<SupportedNetwork[]> {
-    // Fetch all the networks we support
     const res = await fetch(
-        `https://raw.githubusercontent.com/balancer/balancer-deployments/refs/heads/${branch}/addresses/.supported-networks.json`,
+        `${deploymentsBase}/addresses/.supported-networks.json`,
     );
+    if (!res.ok) {
+        throw new Error(
+            `Failed to fetch supported networks: ${res.status} ${res.statusText}`,
+        );
+    }
     const data: Record<string, SupportedNetworkResponse> = await res.json();
 
     const supportedNetworks = Object.entries(data).map(
         ([name, { chainId }]) => ({
             networkName: name,
             chainId,
-            deploymentsUrl: `https://raw.githubusercontent.com/balancer/balancer-deployments/refs/heads/${branch}/addresses/${name}.json`,
+            deploymentsUrl: `${deploymentsBase}/addresses/${name}.json`,
         }),
     );
-
-    // Manually add sonic since it live in seperate beets org repo
-    supportedNetworks.push({
-        networkName: 'sonic',
-        chainId: sonic.id,
-        deploymentsUrl:
-            'https://raw.githubusercontent.com/beethovenxfi/balancer-deployments/refs/heads/master/addresses/sonic.json',
-    });
 
     supportedNetworks.sort((a, b) =>
         a.networkName.localeCompare(b.networkName),
@@ -107,64 +140,45 @@ async function processContractData(supportedNetworks: SupportedNetwork[]) {
         // Process each task sequentially to maintain consistent order
         for (const [taskId, value] of Object.entries(data)) {
             if (value.status !== 'ACTIVE') continue;
-            const { version } = value;
+            // Frontier address files omit version; deployments are V3.
+            const version = value.version ?? 'v3';
 
             for (const contract of value.contracts) {
                 if (!targetContracts.includes(contract.name)) continue;
 
                 const { name } = contract;
 
-                if (version === 'v2') {
+                if (version === 'v2' && targetContractsV2.includes(name)) {
                     if (!balancerV2Contracts[name])
                         balancerV2Contracts[name] = {};
                     balancerV2Contracts[name][chainIdToHumanKey[chainId]] =
                         contract.address;
                 }
-                if (version === 'v3') {
+                if (version === 'v3' && targetContractsV3.includes(name)) {
                     if (!balancerV3Contracts[name])
                         balancerV3Contracts[name] = {};
                     balancerV3Contracts[name][chainIdToHumanKey[chainId]] =
                         contract.address;
                 }
 
-                // Grab contract ABIs using only sepolia, which should include all contracts right? we wouldnt deploy to prod w/o sepolia test right?
+                // Grab contract ABIs using only sepolia
                 if (networkName === 'sepolia' && version === 'v3') {
-                    const url = `https://raw.githubusercontent.com/balancer/balancer-deployments/refs/heads/${branch}/${version}/tasks/${taskId}/artifact/${contract.name}.json`;
-                    const res = await fetch(url);
-                    if (!res.ok) {
-                        throw new Error(
-                            `Failed to fetch ABI for ${contract.name}: ${res.status} ${res.statusText}`,
+                    // frontier-fi/deployments keeps artifacts under tasks/ (no v3/ prefix)
+                    const url = `${deploymentsBase}/tasks/${taskId}/artifact/${contract.name}.json`;
+                    const abiRes = await fetch(url);
+                    if (!abiRes.ok) {
+                        console.warn(
+                            `Skipping ABI for ${contract.name}: ${abiRes.status} ${abiRes.statusText}`,
                         );
+                        continue;
                     }
-                    const data: AbiResponse = await res.json();
+                    const abiData: AbiResponse = await abiRes.json();
 
                     const contractName =
                         contract.name.charAt(0).toLowerCase() +
                         contract.name.slice(1);
                     const content = `export const ${contractName}Abi_${version.toUpperCase()} = ${JSON.stringify(
-                        data.abi,
-                        undefined,
-                        4,
-                    )} as const;`;
-                    const path = `./src/abi/${version}/${contractName}.ts`;
-                    writeFileSync(path, content);
-                }
-
-                if (networkName === 'mainnet' && version === 'v2') {
-                    const url = `https://raw.githubusercontent.com/balancer/balancer-deployments/refs/heads/${branch}/${version}/tasks/${taskId}/artifact/${contract.name}.json`;
-                    const res = await fetch(url);
-                    if (!res.ok) {
-                        throw new Error(
-                            `Failed to fetch ABI for ${contract.name}: ${res.status} ${res.statusText}`,
-                        );
-                    }
-                    const data: AbiResponse = await res.json();
-
-                    const contractName =
-                        contract.name.charAt(0).toLowerCase() +
-                        contract.name.slice(1);
-                    const content = `export const ${contractName}Abi_${version.toUpperCase()} = ${JSON.stringify(
-                        data.abi,
+                        abiData.abi,
                         undefined,
                         4,
                     )} as const;`;
@@ -174,22 +188,24 @@ async function processContractData(supportedNetworks: SupportedNetwork[]) {
             }
         }
 
-        // Update Permit2 entries
-        // Since Permit2 is not part of the "addresses" folder in the deployments repo
-        // The addresses are being fetched from the task output
-        // https://github.com/balancer/balancer-deployments/tree/master/v3/tasks/00000000-permit2/output
+        // Update Permit2 entries when the deployments repo publishes them
+        // https://github.com/frontier-fi/deployments/tree/main/tasks
         try {
-            const permit2Url = `https://raw.githubusercontent.com/balancer/balancer-deployments/refs/heads/master/v3/tasks/00000000-permit2/output/${networkName}.json`;
+            const permit2Url = `${deploymentsBase}/tasks/00000000-permit2/output/${networkName}.json`;
             const permit2Result = await fetch(permit2Url);
+            if (!permit2Result.ok) {
+                throw new Error(
+                    `HTTP ${permit2Result.status} ${permit2Result.statusText}`,
+                );
+            }
             const permit2Data = await permit2Result.json();
             const permit2Address = permit2Data.Permit2;
-            if (!permit2Data) {
+            if (!permit2Address) {
                 throw new Error(
                     `Failed to fetch Permit2 data for ${networkName}`,
                 );
             }
 
-            // Direct check: Does PERMIT2 object have an entry for this chainId?
             if (!PERMIT2[chainId]) {
                 const chainIdKey = chainIdToHumanKey[chainId];
                 if (chainIdKey) {
@@ -201,9 +217,8 @@ async function processContractData(supportedNetworks: SupportedNetwork[]) {
                 }
             }
         } catch (e) {
-            // errors here are probably due to the deployments repo not having
-            // an entry for the PERMIT2 address on the task for the given
-            // network
+            // Frontier has not published a Permit2 task yet; Sepolia already
+            // uses the canonical Permit2 address in constants.ts
             console.log(`Failed to fetch Permit2 for ${networkName}: ${e}`);
         }
     }

@@ -5,7 +5,7 @@ import { CHAINS, NATIVE_ASSETS } from '@/utils/constants';
 import { SorSwapPaths } from '@/data/providers/balancer-api/modules/sorSwapPaths';
 import { BalancerApiClient } from '@/data/providers/balancer-api/client';
 
-const API_ENDPOINT = 'https://api-v3.balancer.fi/';
+const API_ENDPOINT = 'https://api.frontier.fi/';
 
 type SupportedChain = {
     name: string;

@@ -303,5 +303,5 @@ export const NATIVE_ASSETS = {
 
 export const DEFAULT_USERDATA = '0x';
 
-export const API_ENDPOINT = 'https://api-v3.balancer.fi';
-export const TEST_API_ENDPOINT = 'https://test-api-v3.balancer.fi';
+export const API_ENDPOINT = 'https://api.frontier.fi';
+export const TEST_API_ENDPOINT = 'https://api.frontier.fi';
