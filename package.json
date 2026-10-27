@@ -4,7 +4,7 @@
     "license": "MIT",
     "repository": {
         "type": "git",
-        "url": "https://github.com/balancer/b-sdk"
+        "url": "https://github.com/frontier-fi/b-sdk"
     },
     "publishConfig": {
         "access": "public"
@@ -21,6 +21,7 @@
         "codegen": "graphql-codegen-esm --config codegen.yml",
         "prebuild": "pnpm run codegen",
         "build": "tsup",
+        "prepare": "pnpm exec tsup",
         "format": "biome format --write .",
         "lint": "dpdm -T ./src && biome check .",
         "check-types": "tsc --noEmit --skipLibCheck",

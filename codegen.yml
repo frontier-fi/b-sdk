@@ -1,4 +1,4 @@
-schema: https://api-v3.balancer.fi/graphql
+schema: https://api.frontier.fi/graphql
 documents: src/data/providers/balancer-api/modules/**/*.ts
 generates:
   src/data/providers/balancer-api/generated/types.ts:

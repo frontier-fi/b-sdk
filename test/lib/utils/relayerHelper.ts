@@ -9,8 +9,8 @@ export const grantRoles = async (
     const balancerDaoAddress = '0x10A19e7eE7d7F8a52822f6817de8ea18204F2e4f';
     const authorizerAddress = '0xA331D84eC860Bf466b4CdCcFb4aC09a1B43F3aE6';
 
-    // Check for available roles on balancer-deployments repo:
-    // https://github.com/balancer/balancer-deployments/blob/master/action-ids/mainnet/action-ids.json
+    // Check for available roles on frontier-fi/deployments repo:
+    // https://github.com/frontier-fi/deployments/blob/main/action-ids/sepolia/action-ids.json
     const exitRole =
         '0xc149e88b59429ded7f601ab52ecd62331cac006ae07c16543439ed138dcb8d34';
     const joinRole =
